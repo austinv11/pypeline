@@ -1,3 +1,4 @@
+import time
 import ujson
 import xxhash
 from abc import ABC, abstractmethod
@@ -16,10 +17,10 @@ def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:
 
 
 async def serialize(obj: object) -> bytes:
-    return ujson.encode(obj, ensure_ascii=False).encode()
+    return ujson.encode({'payload': obj, 'timestamp': time.time()}, ensure_ascii=False).encode()
 
 
-async def deserialize(value: bytes) -> object:
+async def deserialize(value: bytes) -> dict:
     return ujson.decode(value.decode())
 
 
@@ -47,4 +48,4 @@ class SerializableAction(ABC):
                 db.put("_".join([self.task_name, uid]), serialized)
             return ret_val
 
-        return await deserialize(ret_val)
+        return (await deserialize(ret_val))['payload']
