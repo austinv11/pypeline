@@ -1,9 +1,16 @@
 import time
-import ujson
+from collections import namedtuple
+from typing import Tuple, List
+
 import xxhash
 from abc import ABC, abstractmethod
 
 from ._db import *
+from . import json
+
+
+# TODO: Wire context
+ResultsHolder = namedtuple("ResultsHolder", ('args', 'kwargs', 'context'))
 
 
 def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:
@@ -16,12 +23,12 @@ def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:
     return x.digest()
 
 
-async def serialize(obj: object) -> bytes:
-    return ujson.encode({'payload': obj, 'timestamp': time.time()}, ensure_ascii=False).encode()
+async def serialize(obj: ResultsHolder) -> bytes:
+    return json.dumps({'payload': {'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context}, 'timestamp': time.time()}, ensure_ascii=False).encode()
 
 
 async def deserialize(value: bytes) -> dict:
-    return ujson.decode(value.decode())
+    return json.loads(value.decode())
 
 
 class SerializableAction(ABC):
@@ -34,9 +41,9 @@ class SerializableAction(ABC):
     def task_name(self) -> str: ...
 
     @abstractmethod
-    async def execute(self, *args, **kwargs) -> object: ...
+    async def execute(self, *args, **kwargs) -> List[ResultsHolder]: ...
 
-    async def run(self, *args, **kwargs) -> object:
+    async def run(self, *args, **kwargs) -> List[ResultsHolder]:
         uid = build_uid(*args, **kwargs)
         with open_prefixed_db(self.db_dir, uid) as db:
             ret_val = db.get("_".join([self.task_name, uid]))
@@ -48,4 +55,43 @@ class SerializableAction(ABC):
                 db.put("_".join([self.task_name, uid]), serialized)
             return ret_val
 
-        return (await deserialize(ret_val))['payload']
+        ret_val = [ResultsHolder(args=x['args'], kwargs=x['kwargs'], context=x['context']) for x in (await deserialize(ret_val))['payload']]
+        return ret_val
+
+
+class PypelineExecutor(ABC):
+
+    @abstractmethod
+    async def run(self, pypeline: 'Pypeline'): ...
+
+
+class SimplePypelineExecutor(PypelineExecutor):
+    """
+    Simple sequential executor of pypeline steps. There is very little concurrency so step execution order can be
+    considered deterministic.
+    """
+
+    async def run(self, pypeline: 'Pypeline') -> List[ResultsHolder]:
+        curr_args = None
+        for step in pypeline.steps:
+            if not curr_args:
+                curr_args = await step.run()
+            else:
+                new_args = []
+                for arg_set in curr_args:
+                    new_args += await step.run(*arg_set.args, **arg_set.kwargs)
+                curr_args = new_args
+
+        return curr_args
+
+
+class Pypeline:
+
+    def __init__(self):
+        self.steps = []
+
+    def add_action(self, action: SerializableAction):
+        self.steps.append(action)
+
+    async def run(self, executor: PypelineExecutor = SimplePypelineExecutor()) -> List[ResultsHolder]:
+        return await executor.run(self)

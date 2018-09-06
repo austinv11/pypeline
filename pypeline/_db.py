@@ -11,6 +11,6 @@ def open_db(loc: str) -> plyvel.DB:
 
 
 @contextmanager
-def open_prefixed_db(loc: str, prefix: str) -> plyvel.DB:
+def open_prefixed_db(loc: str, prefix: bytes) -> plyvel.DB:
     with open_db(loc) as db:
-        yield db.prefixed_db(prefix.encode())
+        yield db.prefixed_db(prefix)
