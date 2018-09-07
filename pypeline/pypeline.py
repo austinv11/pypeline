@@ -23,8 +23,8 @@ def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:
     return x.digest()
 
 
-async def serialize(obj: ResultsHolder) -> bytes:
-    return json.dumps({'payload': {'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context}, 'timestamp': time.time()}, ensure_ascii=False).encode()
+async def serialize(objs: List[ResultsHolder], procedure_version: str) -> bytes:
+    return json.dumps({'payload': [{'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context} for obj in objs], 'timestamp': time.time(), 'version': procedure_version}, ensure_ascii=False).encode()
 
 
 async def deserialize(value: bytes) -> dict:
@@ -41,6 +41,10 @@ class SerializableAction(ABC):
     def task_name(self) -> str: ...
 
     @abstractmethod
+    @property
+    def version(self) -> str: ...
+
+    @abstractmethod
     async def execute(self, *args, **kwargs) -> List[ResultsHolder]: ...
 
     async def run(self, *args, **kwargs) -> List[ResultsHolder]:
@@ -48,9 +52,9 @@ class SerializableAction(ABC):
         with open_prefixed_db(self.db_dir, uid) as db:
             ret_val = db.get("_".join([self.task_name, uid]))
 
-        if ret_val is None:
+        if ret_val is None or self.version != ret_val['version']:
             ret_val = await self.execute(*args, **kwargs)
-            serialized = await serialize(ret_val)
+            serialized = await serialize(ret_val, self.version)
             with open_prefixed_db(self.db_dir, uid) as db:
                 db.put("_".join([self.task_name, uid]), serialized)
             return ret_val
