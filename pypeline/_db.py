@@ -1,3 +1,4 @@
+import os
 from contextlib import contextmanager
 
 import plyvel
@@ -5,9 +6,13 @@ import plyvel
 
 @contextmanager
 def open_db(loc: str) -> plyvel.DB:
-    db = plyvel.DB(loc, create_if_missing=True)
-    yield db
-    db.close()
+    from filelock import FileLock
+
+    lock = FileLock(os.path.join(loc, "LOCK.lock"))
+    with lock:
+        db = plyvel.DB(loc, create_if_missing=True)
+        yield db
+        db.close()
 
 
 @contextmanager

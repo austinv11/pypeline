@@ -1,8 +1,8 @@
 import asyncio
 import time
 from collections import namedtuple, OrderedDict
-from concurrent.futures import ThreadPoolExecutor
-from typing import List
+from multiprocess.pool import Pool
+from typing import List, Tuple, Dict, Any
 
 import xxhash
 from abc import ABC, abstractmethod
@@ -13,6 +13,10 @@ from . import json
 
 # TODO: Wire context
 ResultsHolder = namedtuple("ResultsHolder", ('args', 'kwargs', 'context'))
+
+
+def wrap(*args, **kwargs) -> ResultsHolder:
+    return ResultsHolder(args, kwargs, {})
 
 
 def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:
@@ -38,30 +42,45 @@ class SerializableAction(ABC):
     def __init__(self, db_dir: str):
         self.db_dir = db_dir
 
-    @abstractmethod
     @property
+    @abstractmethod
     def task_name(self) -> str: ...
 
-    @abstractmethod
     @property
+    @abstractmethod
     def version(self) -> str: ...
+
+    async def pre_execute(self, *args, **kwargs) -> Tuple[Tuple, Dict]: return args, kwargs
+
+    async def post_execute(self, return_value: List[ResultsHolder], *args, **kwargs) -> Any: return return_value
 
     @abstractmethod
     async def execute(self, *args, **kwargs) -> List[ResultsHolder]: ...
 
     async def run(self, *args, **kwargs) -> List[ResultsHolder]:
-        uid = build_uid(*args, **kwargs)
+        uid = build_uid(self, *args, **kwargs)
+        key = self.task_name.encode() + b'_' + uid
         with open_prefixed_db(self.db_dir, uid) as db:
-            ret_val = db.get("_".join([self.task_name, uid]))
+            ret_val = db.get(key)
+
+        if ret_val is not None:
+            ret_val = await deserialize(ret_val)
 
         if ret_val is None or self.version != ret_val['version']:
+            should_remove = ret_val is not None
+            args, kwargs = await self.pre_execute(*args, **kwargs)
             ret_val = await self.execute(*args, **kwargs)
+            ret_val = await self.post_execute(ret_val, *args, **kwargs)
             serialized = await serialize(ret_val, self.version)
             with open_prefixed_db(self.db_dir, uid) as db:
-                db.put("_".join([self.task_name, uid]), serialized)
+                if should_remove:
+                    db.delete(key)
+                db.put(key, serialized)
             return ret_val
 
-        ret_val = [ResultsHolder(args=x['args'], kwargs=x['kwargs'], context=x['context']) for x in (await deserialize(ret_val))['payload']]
+        args, kwargs = await self.pre_execute(*args, **kwargs)
+        ret_val = [ResultsHolder(args=x['args'], kwargs=x['kwargs'], context=x['context']) for x in ret_val['payload']]
+        await self.post_execute(ret_val, *args, **kwargs)
         return ret_val
 
 
@@ -91,7 +110,8 @@ class SimplePypelineExecutor(PypelineExecutor):
 
 class ForkingPypelineExecutor(PypelineExecutor):
 
-    def __init__(self, max_forking_factor=4):
+    def __init__(self, max_forking_factor=1):
+        assert max_forking_factor < 2  # Forking isn't supported very well yet
         self.max_forking_factor = max_forking_factor
 
     async def run(self, pypeline: 'Pypeline'):
@@ -115,22 +135,31 @@ class ForkingPypelineExecutor(PypelineExecutor):
             return
 
         if forking_factor == 1:
-            def submit_task(coroutine):
-                return asyncio.ensure_future(coroutine, loop=asyncio.get_event_loop())
+            for result in results:
+                coro = ForkingPypelineExecutor._noarg_coro_builder(self.continue_run, linked_map, curr_step, *result.args, **result.kwargs)
+
+                asyncio.ensure_future(coro, loop=asyncio.get_event_loop())
         else:
-            pool = ThreadPoolExecutor(max_workers=forking_factor, thread_name_prefix="PypelineExecutor")
-            def submit_task(coroutine):
-                return asyncio.get_event_loop().run_in_executor(pool, coroutine)
+            # FIXME
+            pool = Pool(processes=forking_factor)
 
-        for result in results:
-            coro = self._noarg_coro_builder(curr_step.run, *result.args, **result.kwargs)
+            for result in results:
+                pool.apply_async(ForkingPypelineExecutor._forked_process(curr_step, *result.args, **result.kwargs), callback=self._callback_builder(curr_step, linked_map)).get()
 
-            future = submit_task(coro)
-            future.add_done_callback(self._callback_builder(curr_step, linked_map))
+    @staticmethod
+    def _forked_process(step, *args, **kwargs):
+        def _inner_forked_process():
+            return asyncio.wait_for(ForkingPypelineExecutor._coro_builder(step, *args, **kwargs), 10000000000)
+        return _inner_forked_process
 
-    def _noarg_coro_builder(self, coro, *args, **kwargs):
-        async def coro1(): await coro(*args, **kwargs)
-        return coro1
+    @staticmethod
+    def _coro_builder(step, *args, **kwargs):
+        return step.run(*args, **kwargs)
+
+    @staticmethod
+    def _noarg_coro_builder(coro, linked_map, curr_step, *args, **kwargs):
+        async def coro1(): return await coro(linked_map, curr_step, *args, **kwargs)
+        return coro1()
 
     def _callback_builder(self, next_step, linked_map):
         def callback(future):
