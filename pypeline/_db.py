@@ -8,6 +8,9 @@ import plyvel
 def open_db(loc: str) -> plyvel.DB:
     from filelock import FileLock
 
+    if not os.path.exists(loc):
+        os.mkdir(loc)
+
     lock = FileLock(os.path.join(loc, "LOCK.lock"))
     with lock:
         db = plyvel.DB(loc, create_if_missing=True)

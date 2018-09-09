@@ -108,67 +108,88 @@ class SimplePypelineExecutor(PypelineExecutor):
                 curr_args = new_args
 
 
+class _ForkingSlave:
+
+    def __init__(self, callable):
+        self.callable = callable
+
+    async def run(self):
+        coro = asyncio.coroutine(self.callable)
+        child = await coro()
+        if child:
+            await child.run()
+
+
 class ForkingPypelineExecutor(PypelineExecutor):
 
-    def __init__(self, max_forking_factor=1):
-        assert max_forking_factor < 2  # Forking isn't supported very well yet
+    def __init__(self, max_forking_factor=max((os.cpu_count() or 0) // 2, 2)):
         self.max_forking_factor = max_forking_factor
 
-    async def run(self, pypeline: 'Pypeline'):
-        linked_map = OrderedDict()
-        # Convert to a linked(ish) list
-        for i, v in enumerate(pypeline.steps):
-            if i == len(pypeline.steps) - 1:
-                linked_map[v] = None
-            else:
-                linked_map[v] = pypeline.steps[i+1]
+    @staticmethod
+    def _callable_packer(delegate, steps, max_forking_factor, index, *args, **kwargs):
+        def _callable():
+            return delegate(steps, max_forking_factor, index, *args, **kwargs)
+        return _callable
 
-        curr_step = pypeline.steps[0]
-        await self.continue_run(linked_map, curr_step)
+    @staticmethod
+    def _make_slave(callable):
+        return _ForkingSlave(callable)
 
-    async def continue_run(self, linked_map, curr_step, *args, **kwargs):
-        results = await curr_step.run(*args, **kwargs)
-        forking_factor = min(self.max_forking_factor, len(results))
-        curr_step = linked_map[curr_step]
+    @staticmethod
+    def __child_process(steps, max_forking_factor, index, results):
+        from . import _ensure_loop_set
+        _ensure_loop_set()
+        loop = asyncio.new_event_loop()
+        coros = []
+        for result in results:
+            coros.append(ForkingPypelineExecutor.__callable(steps, max_forking_factor, index, *result.args,
+                                                            **result.kwargs))
+        return loop.run_until_complete(asyncio.gather(*coros, loop=loop))
 
-        if curr_step is None or forking_factor == 0:
+    @staticmethod
+    async def __callable(steps, max_forking_factor, index, *args, **kwargs):
+        if index >= len(steps):
+            return
+
+        step = steps[index]
+        results = await step.run(*args, **kwargs)
+        forking_factor = min(max_forking_factor, len(results))
+
+        if forking_factor == 0:
             return
 
         if forking_factor == 1:
-            for result in results:
-                coro = ForkingPypelineExecutor._noarg_coro_builder(self.continue_run, linked_map, curr_step, *result.args, **result.kwargs)
-
-                asyncio.ensure_future(coro, loop=asyncio.get_event_loop())
-        else:
-            # FIXME
-            pool = Pool(processes=forking_factor)
-
-            for result in results:
-                pool.apply_async(ForkingPypelineExecutor._forked_process(curr_step, *result.args, **result.kwargs), callback=self._callback_builder(curr_step, linked_map)).get()
-
-    @staticmethod
-    def _forked_process(step, *args, **kwargs):
-        def _inner_forked_process():
-            return asyncio.wait_for(ForkingPypelineExecutor._coro_builder(step, *args, **kwargs), 10000000000)
-        return _inner_forked_process
-
-    @staticmethod
-    def _coro_builder(step, *args, **kwargs):
-        return step.run(*args, **kwargs)
-
-    @staticmethod
-    def _noarg_coro_builder(coro, linked_map, curr_step, *args, **kwargs):
-        async def coro1(): return await coro(linked_map, curr_step, *args, **kwargs)
-        return coro1()
-
-    def _callback_builder(self, next_step, linked_map):
-        def callback(future):
-            next = next_step
-            results = future.result()
+            coros = []
             for res in results:
-                asyncio.ensure_future(self.continue_run(linked_map, next, *res.args, **res.kwargs))
+                coros.append(ForkingPypelineExecutor.__callable(steps, max_forking_factor, index+1, *res.args,
+                                                                **res.kwargs))
+            return ForkingPypelineExecutor._make_slave(asyncio.gather(*coros))
+        else:
+            children = []
+            for res in results:
+                children.append(ForkingPypelineExecutor._callable_packer(ForkingPypelineExecutor.__child_process,
+                                                                         steps, max_forking_factor, index+1,
+                                                                         results=[res]))
 
-        return callback
+            async def waiter():
+                def _call(child):
+                    child()
+                pool = Pool(forking_factor)
+                pool.map(_call, children)
+                pool.close()
+                pool.join()
+
+            return ForkingPypelineExecutor._make_slave(waiter)
+
+    async def run(self, pypeline: 'Pypeline'):
+        slave = ForkingPypelineExecutor._make_slave(
+            ForkingPypelineExecutor._callable_packer(ForkingPypelineExecutor.__callable,
+                                                     pypeline.steps,
+                                                     self.max_forking_factor,
+                                                     0))
+
+        while slave:
+            slave = await slave.run()
 
 
 class Pypeline:
