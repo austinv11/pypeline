@@ -2,13 +2,13 @@ import asyncio
 import time
 from collections import namedtuple
 from multiprocess.pool import Pool
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple, Optional
 
 import xxhash
 from abc import ABC, abstractmethod
 
 from ._db import *
-from . import json
+from . import _serializer, _deserializer
 from .lazy import *
 
 
@@ -39,11 +39,11 @@ def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:
 
 
 async def serialize(objs: List[ResultsHolder], procedure_version: str) -> bytes:
-    return json.dumps({'payload': [{'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context} for obj in objs], 'timestamp': time.time(), 'version': procedure_version}, ensure_ascii=False).encode()
+    return _serializer({'payload': [{'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context} for obj in objs], 'timestamp': time.time(), 'version': procedure_version}, ensure_ascii=False).encode()
 
 
 async def deserialize(value: bytes) -> dict:
-    return json.loads(value.decode())
+    return _deserializer(value.decode())
 
 
 class SerializableAction(ABC):

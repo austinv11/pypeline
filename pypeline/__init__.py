@@ -1,7 +1,4 @@
-try:
-    import ujson as json
-except:
-    import json
+from typing import Callable, Any
 
 from .pypeline import SerializableAction, ResultsHolder, PypelineExecutor, SimplePypelineExecutor, \
     ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs
@@ -30,5 +27,25 @@ def _ensure_loop_set():
 _hook_uvloop()
 
 
+_serializer: Callable[[Any], bytes] = ...
+_deserializer: Callable[[bytes], Any] = ...
+
+
+def set_serializer(serializer: Callable[[Any], bytes], deserializer: Callable[[bytes], Any]):
+    global _serializer
+    global _deserializer
+
+    _serializer = serializer
+    _deserializer = deserializer
+
+
+try:
+    import ujson as json
+except:
+    import json
+
+set_serializer(lambda x: json.dumps(x).encode(), lambda x: json.loads(x.decode()))
+
+
 __all__ = ('SerializableAction', 'ResultsHolder', 'PypelineExecutor', 'SimplePypelineExecutor',
-           'ForkingPypelineExecutor', 'Pypeline', 'LazyDict', 'wrap', 'extract_lazy_kwargs')
+           'ForkingPypelineExecutor', 'Pypeline', 'LazyDict', 'wrap', 'extract_lazy_kwargs', 'set_serializer')
