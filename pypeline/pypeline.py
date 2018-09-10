@@ -1,14 +1,15 @@
 import asyncio
 import time
-from collections import namedtuple, OrderedDict
+from collections import namedtuple
 from multiprocess.pool import Pool
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Optional
 
 import xxhash
 from abc import ABC, abstractmethod
 
 from ._db import *
 from . import json
+from .lazy import *
 
 
 # TODO: Wire context
@@ -17,6 +18,14 @@ ResultsHolder = namedtuple("ResultsHolder", ('args', 'kwargs', 'context'))
 
 def wrap(*args, **kwargs) -> ResultsHolder:
     return ResultsHolder(args, kwargs, {})
+
+
+def extract_lazy_kwargs(**kwargs) -> Optional[LazyDict]:
+    for v in kwargs.values():
+        if isinstance(v, LazyDict):
+            return v
+
+    return None
 
 
 def build_uid(self: "SerializableAction", *args, **kwargs) -> bytes:

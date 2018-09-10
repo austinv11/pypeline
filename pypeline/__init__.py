@@ -4,7 +4,9 @@ except:
     import json
 
 from .pypeline import SerializableAction, ResultsHolder, PypelineExecutor, SimplePypelineExecutor, \
-    ForkingPypelineExecutor, Pypeline, wrap
+    ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs
+
+from .lazy import LazyDict
 
 
 def _hook_uvloop():
@@ -29,4 +31,4 @@ _hook_uvloop()
 
 
 __all__ = ('SerializableAction', 'ResultsHolder', 'PypelineExecutor', 'SimplePypelineExecutor',
-           'ForkingPypelineExecutor', 'Pypeline', 'wrap')
+           'ForkingPypelineExecutor', 'Pypeline', 'LazyDict', 'wrap', 'extract_lazy_kwargs')
