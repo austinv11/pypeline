@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import time
 from collections import namedtuple
 from multiprocess.pool import Pool
@@ -125,10 +126,13 @@ class SimplePypelineExecutor(PypelineExecutor):
             if not curr_args:
                 curr_args = await step.run()
             else:
-                new_args = []
+                coros = []
                 for arg_set in curr_args:
-                    new_args += await step.run(*arg_set.args, **arg_set.kwargs)
-                curr_args = new_args
+                    coros.append(step.run(*arg_set.args, **arg_set.kwargs))
+                total_coro = asyncio.gather(*coros)
+                results = await total_coro
+                flattened_results = list(itertools.chain(*results))
+                curr_args = flattened_results
 
 
 class _ForkingSlave:
