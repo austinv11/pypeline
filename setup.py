@@ -3,10 +3,13 @@ from setuptools import setup, find_packages
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
+with open("requirements.txt", "r") as fh:
+    requirements = [l for l in fh if l]
+
 setup(
     name='Data Pypeline',
     version='0.1.0',
-    packages=find_packages(),
+    packages=find_packages(exclude=('tests',)),
     url='https://github.com/austinv11/pypeline',
     project_urls={
         'Bug Reports': 'https://github.com/austinv11/pypeline/issues',
@@ -33,4 +36,5 @@ setup(
         "Development Status :: 4 - Beta",
     ],
     keywords='data pipeline pypeline',
+    install_requires=requirements,
 )
