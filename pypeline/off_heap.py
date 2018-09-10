@@ -7,7 +7,6 @@ from collections.abc import MutableMapping
 from typing import Iterator, Any, Dict
 
 from ._db import *
-from . import _serializer, _deserializer
 
 
 def fs_dict(dir: str) -> Dict[str, Any]:
@@ -19,7 +18,7 @@ def fs_dict(dir: str) -> Dict[str, Any]:
     return FileSystemDict(dir)
 
 
-class FileSystemDict(MutableMapping[str, Any], Dict[str, Any]):
+class FileSystemDict(MutableMapping):
     """
     A str, value dictionary backed by the filesystem.
     """
@@ -32,6 +31,7 @@ class FileSystemDict(MutableMapping[str, Any], Dict[str, Any]):
         shutil.rmtree(self.dir)
 
     def __setitem__(self, k: str, v: Any) -> None:
+        from . import _serializer
         with open_db(self.dir) as db:
             db.put(k.encode(), _serializer(v))
 
@@ -40,6 +40,7 @@ class FileSystemDict(MutableMapping[str, Any], Dict[str, Any]):
             db.delete(v.encode())
 
     def __getitem__(self, k: str) -> Any:
+        from . import _deserializer
         with open_db(self.dir) as db:
             return _deserializer(db.get(k.encode()))
 

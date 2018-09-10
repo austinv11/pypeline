@@ -5,17 +5,15 @@ Main library functionality.
 import asyncio
 import itertools
 import time
-from collections import namedtuple
+from collections import namedtuple, Iterable
 from multiprocess.pool import Pool
-from typing import List, Tuple, Optional, Coroutine, Callable
+from typing import List, Tuple, Optional, Callable, Awaitable
 
 import xxhash
 from abc import ABC, abstractmethod
 
 from ._db import *
-from . import _serializer, _deserializer
 from .off_heap import *
-
 
 # TODO: Wire context
 
@@ -75,7 +73,8 @@ async def serialize(objs: List[ResultsHolder], procedure_version: str) -> bytes:
     :param procedure_version: The version of the action.
     :return: The serialized payload.
     """
-    return _serializer({'payload': [{'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context} for obj in objs], 'timestamp': time.time(), 'version': procedure_version}, ensure_ascii=False).encode()
+    from . import _serializer
+    return _serializer({'payload': [{'args': obj.args, 'kwargs': obj.kwargs, 'context': obj.context} for obj in objs], 'timestamp': time.time(), 'version': procedure_version})
 
 
 async def deserialize(value: bytes) -> dict:
@@ -84,7 +83,8 @@ async def deserialize(value: bytes) -> dict:
     :param value: The serialized results.
     :return: The deserialized results.
     """
-    return _deserializer(value.decode())
+    from . import _deserializer
+    return _deserializer(value)
 
 
 class Action(ABC):
@@ -273,17 +273,45 @@ class _ForkingSlave:
         self.callable = callable
 
     async def run(self) -> List[ResultsHolder]:
-        coro = asyncio.coroutine(self.callable)
-        child = await coro()
-        if child:
-            return await child.run()
+        if not asyncio.iscoroutine(self.callable) and not asyncio.isfuture(self.callable):
+            coro = asyncio.coroutine(self.callable)
+        else:
+            coro = self.callable
+        if asyncio.iscoroutine(coro) or asyncio.isfuture(coro):
+            children = await coro
+        else:
+            children = await coro()
+
+        if children:
+            if isinstance(children, Iterable):
+                if len(children) > 0 and isinstance(children[0], ResultsHolder):
+                    res = children
+                else:
+                    res = list(itertools.chain(*children))
+            else:
+                res = [children]
+            return res
+        else:
+            pass
+
+
+class _InstantReturningForkingSlave(_ForkingSlave):
+    """
+    Internal helper for ForkingPypelineExecutor.
+    """
+
+    def __init__(self, results: List[ResultsHolder]):
+        self.results = results
+
+    async def run(self) -> List[ResultsHolder]:
+        return self.results
 
 
 class ForkingPypelineExecutor(PypelineExecutor):
     """
     Totally concurrent executor. This spawns threads based on the passed max_forking_factor on every step execution in
     order to run every step independently of the Python GIL. This is not a very scalable executor! For very long
-    pypelines, this can lead to unbounded thread creation which may end up slowing down your processing!
+    pypelines, this can lead to unbounded thread creation which may actually end up slowing down your processing!
     """
 
     def __init__(self, max_forking_factor=max((os.cpu_count() or 0) // 2, 2)):
@@ -303,7 +331,12 @@ class ForkingPypelineExecutor(PypelineExecutor):
     @staticmethod
     def _make_slave(callable):
         """Internal utility"""
-        return _ForkingSlave(callable)
+        if isinstance(callable, list):
+            return _InstantReturningForkingSlave(callable)
+        elif isinstance(callable, ResultsHolder):
+            return _InstantReturningForkingSlave([callable])
+        else:
+            return _ForkingSlave(callable)
 
     @staticmethod
     def __child_process(steps, max_forking_factor, index, results):
@@ -315,13 +348,17 @@ class ForkingPypelineExecutor(PypelineExecutor):
         for result in results:
             coros.append(ForkingPypelineExecutor.__callable(steps, max_forking_factor, index, *result.args,
                                                             **result.kwargs))
-        return loop.run_until_complete(asyncio.gather(*coros, loop=loop))
+
+        async def _invoke():
+            return await asyncio.gather(*coros, loop=loop)
+
+        return loop.run_until_complete(_invoke())
 
     @staticmethod
     async def __callable(steps, max_forking_factor, index, *args, **kwargs):
         """Handles the current step in the current thread"""
         if index >= len(steps):
-            return
+            return await ForkingPypelineExecutor._make_slave(wrap(*args, **kwargs)).run()
 
         step = steps[index]
         results = await step.run(*args, **kwargs)
@@ -335,7 +372,7 @@ class ForkingPypelineExecutor(PypelineExecutor):
             for res in results:
                 coros.append(ForkingPypelineExecutor.__callable(steps, max_forking_factor, index+1, *res.args,
                                                                 **res.kwargs))
-            return ForkingPypelineExecutor._make_slave(asyncio.gather(*coros))
+            return await ForkingPypelineExecutor._make_slave(asyncio.gather(*coros)).run()
         else:
             children = []
             for res in results:
@@ -345,13 +382,14 @@ class ForkingPypelineExecutor(PypelineExecutor):
 
             async def waiter():
                 def _call(child):
-                    child()
+                    return child()
                 pool = Pool(forking_factor)
-                pool.map(_call, children)
+                results = pool.map(_call, children)
                 pool.close()
                 pool.join()
+                return results
 
-            return ForkingPypelineExecutor._make_slave(waiter)
+            return await ForkingPypelineExecutor._make_slave(waiter).run()
 
     async def run(self, pypeline: 'Pypeline') -> List[ResultsHolder]:
         slave = ForkingPypelineExecutor._make_slave(
@@ -396,9 +434,7 @@ class _FrozenPypeline(Pypeline):
 
     def __init__(self, pypeline: Pypeline):
         super().__init__()
-        for action in pypeline.steps:
-            super().add_action(action)
-        self.steps = tuple(super().steps)  # Freeze the steps
+        self.steps = tuple(pypeline.steps)  # Freeze the steps
 
     def add_action(self, action: Action) -> "Pypeline":
         # TODO: Warning message?
@@ -419,10 +455,10 @@ async def _default_post_run(results, *args, **kwargs):
 
 
 def build_action(task_name: str,
-                 runnable: Callable[[Tuple, Dict], Coroutine[List[ResultsHolder]]],
+                 runnable: Callable[[Tuple, Dict], Awaitable[List[ResultsHolder]]],
                  version: str = "0",
-                 pre_run: Callable[[Tuple, Dict], Coroutine[Tuple[Tuple, Dict]]] = _default_pre_run,
-                 post_run: Callable[[List[ResultsHolder], Tuple, Dict], Coroutine[List[ResultsHolder]]] = _default_post_run,
+                 pre_run: Callable[[Tuple, Dict], Awaitable[Tuple[Tuple, Dict]]] = _default_pre_run,
+                 post_run: Callable[[List[ResultsHolder], Tuple, Dict], Awaitable[List[ResultsHolder]]] = _default_post_run,
                  serialize_dir: Optional[str] = None) -> Action:
     """
     Builds an action. Implementing a class can be verbose so this is an alternative.

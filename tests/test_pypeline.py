@@ -51,7 +51,7 @@ class End(SerializableAction):
         return return_value
 
     async def execute(self, *args, **kwargs) -> List[ResultsHolder]:
-        return []
+        return [wrap(args[0])]
 
 
 def test():
@@ -59,7 +59,8 @@ def test():
     pypeline.add_action(Start("./test_db"))
     pypeline.add_action(Middle("./test_db"))
     pypeline.add_action(End("./test_db"))
-    asyncio.get_event_loop().run_until_complete(pypeline.run(executor=ForkingPypelineExecutor()))
+    results = asyncio.get_event_loop().run_until_complete(pypeline.run(executor=ForkingPypelineExecutor()))
+    print(results)
 
 
 if __name__ == '__main__':

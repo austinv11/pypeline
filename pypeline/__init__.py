@@ -4,11 +4,6 @@ This module describes a system for running
 
 from typing import Callable, Any
 
-from .pypeline import SerializableAction, ResultsHolder, PypelineExecutor, SimplePypelineExecutor, \
-    ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs, Action, build_action
-
-from .off_heap import FileSystemDict
-
 
 def _hook_uvloop():
     """
@@ -54,6 +49,11 @@ def set_serializer(serializer: Callable[[Any], bytes], deserializer: Callable[[b
     _serializer = serializer
     _deserializer = deserializer
 
+
+from .pypeline import SerializableAction, ResultsHolder, PypelineExecutor, SimplePypelineExecutor, \
+    ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs, Action, build_action
+
+from .off_heap import FileSystemDict
 
 try:
     import ujson as json
