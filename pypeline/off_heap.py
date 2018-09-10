@@ -1,3 +1,7 @@
+"""
+Utility for caching general objects.
+"""
+
 import shutil
 from collections.abc import MutableMapping
 from typing import Iterator, Any, Dict
@@ -7,14 +11,21 @@ from . import _serializer, _deserializer
 
 
 def fs_dict(dir: str) -> Dict[str, Any]:
-    return LazyDict(dir)
+    """
+    Builder for a filesystem (LevelDB) backed dictionary.
+    :param dir: The directory for the dictionary.
+    :return: The filesystem-backed dictionary.
+    """
+    return FileSystemDict(dir)
 
 
-# Dictionary backed by the filesystem
-class LazyDict(MutableMapping[str, Any], Dict[str, Any]):
+class FileSystemDict(MutableMapping[str, Any], Dict[str, Any]):
+    """
+    A str, value dictionary backed by the filesystem.
+    """
 
     def __init__(self, dir):
-        super(LazyDict, self).__init__()
+        super(FileSystemDict, self).__init__()
         self.dir = dir
 
     def clear(self):
