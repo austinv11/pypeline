@@ -3,7 +3,7 @@ from collections.abc import MutableMapping
 from typing import Iterator, Any, Dict
 
 from ._db import *
-from . import json
+from . import _serializer, _deserializer
 
 
 def fs_dict(dir: str) -> Dict[str, Any]:
@@ -22,7 +22,7 @@ class LazyDict(MutableMapping[str, Any], Dict[str, Any]):
 
     def __setitem__(self, k: str, v: Any) -> None:
         with open_db(self.dir) as db:
-            db.put(k.encode(), json.dumps(v).encode())
+            db.put(k.encode(), _serializer(v))
 
     def __delitem__(self, v: str) -> None:
         with open_db(self.dir) as db:
@@ -30,7 +30,7 @@ class LazyDict(MutableMapping[str, Any], Dict[str, Any]):
 
     def __getitem__(self, k: str) -> Any:
         with open_db(self.dir) as db:
-            return db.get(k.encode())
+            return _deserializer(db.get(k.encode()))
 
     def __len__(self) -> int:
         with open_db(self.dir) as db:
