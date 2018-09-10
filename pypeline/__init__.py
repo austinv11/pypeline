@@ -1,7 +1,7 @@
 from typing import Callable, Any
 
 from .pypeline import SerializableAction, ResultsHolder, PypelineExecutor, SimplePypelineExecutor, \
-    ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs
+    ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs, Action, build_action
 
 from .lazy import LazyDict
 
@@ -48,4 +48,5 @@ set_serializer(lambda x: json.dumps(x).encode(), lambda x: json.loads(x.decode()
 
 
 __all__ = ('SerializableAction', 'ResultsHolder', 'PypelineExecutor', 'SimplePypelineExecutor',
-           'ForkingPypelineExecutor', 'Pypeline', 'LazyDict', 'wrap', 'extract_lazy_kwargs', 'set_serializer')
+           'ForkingPypelineExecutor', 'Pypeline', 'LazyDict', 'wrap', 'extract_lazy_kwargs', 'set_serializer', 'Action',
+           'build_action')

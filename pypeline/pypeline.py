@@ -2,7 +2,7 @@ import asyncio
 import time
 from collections import namedtuple
 from multiprocess.pool import Pool
-from typing import List, Tuple, Optional
+from typing import List, Tuple, Optional, Coroutine, Callable
 
 import xxhash
 from abc import ABC, abstractmethod
@@ -46,7 +46,21 @@ async def deserialize(value: bytes) -> dict:
     return _deserializer(value.decode())
 
 
-class SerializableAction(ABC):
+class Action(ABC):
+
+    @property
+    @abstractmethod
+    def task_name(self) -> str: ...
+
+    @property
+    @abstractmethod
+    def version(self) -> str: ...
+
+    @abstractmethod
+    async def run(self, *args, **kwargs) -> List[ResultsHolder]: ...
+
+
+class SerializableAction(Action, ABC):
 
     def __init__(self, db_dir: str):
         self.db_dir = db_dir
@@ -206,8 +220,67 @@ class Pypeline:
     def __init__(self):
         self.steps = []
 
-    def add_action(self, action: SerializableAction):
+    def add_action(self, action: Action) -> "Pypeline":
         self.steps.append(action)
+        return self
 
     async def run(self, executor: PypelineExecutor = SimplePypelineExecutor()) -> List[ResultsHolder]:
         return await executor.run(self)
+
+
+async def _default_pre_run(*args, **kwargs):
+    return args, kwargs
+
+
+async def _default_post_run(results, *args, **kwargs):
+    return results
+
+
+def build_action(task_name: str,
+                 runnable: Callable[[Tuple, Dict], Coroutine[List[ResultsHolder]]],
+                 version: str = "0",
+                 pre_run: Callable[[Tuple, Dict], Coroutine[Tuple[Tuple, Dict]]] = _default_pre_run,
+                 post_run: Callable[[List[ResultsHolder], Tuple, Dict], Coroutine[List[ResultsHolder]]] = _default_post_run,
+                 serialize_dir: Optional[str] = None) -> Action:
+    if serialize_dir:
+
+        class MySerializableAction(SerializableAction):
+
+            @property
+            def task_name(self) -> str:
+                return task_name
+
+            @property
+            def version(self) -> str:
+                return version
+
+            async def pre_execute(self, *args, **kwargs) -> Tuple[Tuple, Dict]:
+                return await pre_run(*args, **kwargs)
+
+            async def post_execute(self, return_value: List[ResultsHolder], *args, **kwargs) -> Any:
+                return await post_run(return_value, *args, **kwargs)
+
+            async def execute(self, *args, **kwargs) -> List[ResultsHolder]:
+                return await runnable(*args, **kwargs)
+
+        return MySerializableAction(serialize_dir)
+
+    else:
+
+        class MyAction(Action):
+
+            @property
+            def task_name(self) -> str:
+                return task_name
+
+            @property
+            def version(self) -> str:
+                return version
+
+            async def run(self, *args, **kwargs) -> List[ResultsHolder]:
+                args, kwargs = await pre_run(*args, **kwargs)
+                results = await runnable(*args, **kwargs)
+                results = await post_run(results, *args, **kwargs)
+                return results
+
+        return MyAction()
