@@ -31,7 +31,7 @@ async def run_pipeline():
     # Adding actions to the pipeline
     pypeline.add_action(build_action("Step1", step1)) \ 
             .add_action(build_action("Step2", step2)) \
-            .add_action(build_action("Step3", step3, serialize_dir="./example"))  # Serialize results so future runs will skip this entirely
+            .add_action(build_action("Step3", step3, serialize_dir="./example"))  # Serialize results so future runs will skip this step entirely
     results = await pypeline.run(executor=ForkingPypelineExecutor())  # Custom executor that avoids the GIL
     # Results are wrapped in a utility namedtuple, so let's flatten it.
     results = [r.args[0] for r in results]
