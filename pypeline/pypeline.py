@@ -35,6 +35,29 @@ def wrap(*args, **kwargs) -> ResultsHolder:
     return ResultsHolder(args, kwargs, {})
 
 
+def _coerce(ret_val: Any) -> List[ResultsHolder]:
+    """
+    This is an internal helper to ensure that action steps return results in the form of List[ResultsHolder].
+    :param ret_val: The value to double check.
+    :return: The corrected return value.
+    """
+    if ret_val is None:
+        return []
+
+    if isinstance(ret_val, list):
+        if len(ret_val) == 0:
+            return ret_val
+        elif isinstance(ret_val[0], ResultsHolder):
+            return ret_val
+        else:
+            return list(itertools.chain(*[_coerce(x) for x in ret_val]))
+    else:
+        if isinstance(ret_val, ResultsHolder):
+            return [ret_val]
+        else:
+            return [wrap(ret_val)]
+
+
 def extract_lazy_kwargs(**kwargs) -> Optional[FileSystemDict]:
     """
     Searches a set of keyword arguments to find one which is a LazyDict
@@ -228,11 +251,11 @@ class SequentialPypelineExecutor(PypelineExecutor):
         curr_args = None
         for step in pypeline.steps:
             if not curr_args:
-                curr_args = await step.run()
+                curr_args = _coerce(await step.run())
             else:
                 new_args = []
                 for arg_set in curr_args:
-                    new_args.append(await step.run(*arg_set.args, **arg_set.kwargs))
+                    new_args.append(_coerce(await step.run(*arg_set.args, **arg_set.kwargs)))
                 flattened_results = list(itertools.chain(*new_args))
                 curr_args = flattened_results
 
@@ -248,15 +271,14 @@ class SimplePypelineExecutor(PypelineExecutor):
         curr_args = None
         for step in pypeline.steps:
             if not curr_args:
-                curr_args = await step.run()
+                curr_args = _coerce(await step.run())
             else:
                 coros = []
                 for arg_set in curr_args:
                     coros.append(step.run(*arg_set.args, **arg_set.kwargs))
                 total_coro = asyncio.gather(*coros)
                 results = await total_coro
-                flattened_results = list(itertools.chain(*results))
-                curr_args = flattened_results
+                curr_args = _coerce(results)
 
         return curr_args
 
@@ -282,17 +304,7 @@ class _ForkingSlave:
         else:
             children = await coro()
 
-        if children:
-            if isinstance(children, Iterable):
-                if len(children) > 0 and isinstance(children[0], ResultsHolder):
-                    res = children
-                else:
-                    res = list(itertools.chain(*children))
-            else:
-                res = [children]
-            return res
-        else:
-            pass
+        return _coerce(children)
 
 
 class _InstantReturningForkingSlave(_ForkingSlave):
@@ -304,7 +316,7 @@ class _InstantReturningForkingSlave(_ForkingSlave):
         self.results = results
 
     async def run(self) -> List[ResultsHolder]:
-        return self.results
+        return _coerce(self.results)
 
 
 class ForkingPypelineExecutor(PypelineExecutor):

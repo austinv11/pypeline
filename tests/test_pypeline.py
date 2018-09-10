@@ -33,7 +33,7 @@ class Middle(SerializableAction):
 
     async def execute(self, *args, **kwargs) -> List[ResultsHolder]:
         sleep(10)
-        return [wrap(args[0] * 10)]
+        return args[0] * 10  # Tests implicit coercion to List[ResultsHolder]
 
 
 class End(SerializableAction):
