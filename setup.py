@@ -7,7 +7,7 @@ with open("requirements.txt", "r") as fh:
     requirements = [l for l in fh if l]
 
 setup(
-    name='Data Pypeline',
+    name='data-pypeline',
     version='0.1.0',
     packages=find_packages(exclude=('tests',)),
     url='https://github.com/austinv11/pypeline',
@@ -30,7 +30,7 @@ setup(
         "License :: OSI Approved :: Apache Software License",
         "Framework :: AsyncIO",
         "Topic :: Scientific/Engineering",
-        "Topic :: Software Development :: Libraries :: Application Frameworks"
+        "Topic :: Software Development :: Libraries :: Application Frameworks",
         "Topic :: Utilities",
         "Operating System :: OS Independent",
         "Development Status :: 3 - Alpha",
