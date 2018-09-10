@@ -140,7 +140,9 @@ class Action(ABC):
         This is a coroutine which gets called to execute this step.
         :param args: The positional arguments from the past action.
         :param kwargs: The keyword arguments from the past action.
-        :return: The list of results, each represents a new step to be ran.
+        :return: The list of results, each represents a new step to be ran. Note: While it is recommended to return a
+            value of type List[ResultsHolder], Pypeline will attempt to implicitly convert other return values (but
+            there is no guarantee that it will work as intended!).
         """
         ...
 
