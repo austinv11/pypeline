@@ -42,7 +42,11 @@ class FileSystemDict(MutableMapping):
     def __getitem__(self, k: str) -> Any:
         from . import _deserializer
         with open_db(self.dir) as db:
-            return _deserializer(db.get(k.encode()))
+            val = db.get(k.encode())
+            if val:
+                return _deserializer(val)
+            else:
+                return None
 
     def __len__(self) -> int:
         with open_db(self.dir) as db:

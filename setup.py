@@ -8,7 +8,7 @@ with open("requirements.txt", "r") as fh:
 
 setup(
     name='data-pypeline',
-    version='0.1.0',
+    version='0.1.1',
     packages=find_packages(exclude=('tests',)),
     url='https://github.com/austinv11/pypeline',
     project_urls={
