@@ -58,11 +58,11 @@ def _coerce(ret_val: Any) -> List[ResultsHolder]:
             return [wrap(ret_val)]
 
 
-def extract_lazy_kwargs(**kwargs) -> Optional[FileSystemDict]:
+def extract_fs_kwargs(**kwargs) -> Optional[FileSystemDict]:
     """
-    Searches a set of keyword arguments to find one which is a LazyDict
+    Searches a set of keyword arguments to find one which is a FileSystemDict
     :param kwargs: The kwargs to search.
-    :return: The LazyDict if found, else None.
+    :return: The FileSystemDict if found, else None.
     """
     for v in kwargs.values():
         if isinstance(v, FileSystemDict):

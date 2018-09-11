@@ -51,7 +51,7 @@ def set_serializer(serializer: Callable[[Any], bytes], deserializer: Callable[[b
 
 
 from .pypeline import SerializableAction, ResultsHolder, PypelineExecutor, SimplePypelineExecutor, \
-    ForkingPypelineExecutor, Pypeline, wrap, extract_lazy_kwargs, Action, build_action, SequentialPypelineExecutor
+    ForkingPypelineExecutor, Pypeline, wrap, extract_fs_kwargs, Action, build_action, SequentialPypelineExecutor
 
 from .off_heap import FileSystemDict
 
@@ -64,5 +64,5 @@ set_serializer(lambda x: json.dumps(x).encode(), lambda x: json.loads(x.decode()
 
 
 __all__ = ('SerializableAction', 'ResultsHolder', 'PypelineExecutor', 'SimplePypelineExecutor',
-           'ForkingPypelineExecutor', 'Pypeline', 'FileSystemDict', 'wrap', 'extract_lazy_kwargs', 'set_serializer',
+           'ForkingPypelineExecutor', 'Pypeline', 'FileSystemDict', 'wrap', 'extract_fs_kwargs', 'set_serializer',
            'Action', 'build_action', 'SequentialPypelineExecutor')
