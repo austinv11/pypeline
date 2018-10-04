@@ -153,6 +153,9 @@ class SerializableAction(Action, ABC):
     """
 
     def __init__(self, db_dir: str):
+        if not is_plyvel_installed():
+            raise ImportError("This is unusable if plyvel is not installed!")
+
         """
         :param db_dir: The directory for the LevelDB database to be held.
         """
