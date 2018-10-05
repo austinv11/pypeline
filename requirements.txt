@@ -2,6 +2,6 @@ Plyvel; sys_platform != 'win32'
 ujson; sys_platform != 'win32'
 uvloop; sys_platform != 'win32'
 xxhash
-multiprocess
+billiard
 dill
 filelock

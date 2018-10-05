@@ -6,7 +6,7 @@ import asyncio
 import itertools
 import time
 from collections import namedtuple, Iterable
-from multiprocess.pool import Pool
+from billiard.pool import Pool
 from typing import List, Tuple, Optional, Callable, Awaitable
 
 import xxhash
